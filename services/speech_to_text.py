@@ -1,9 +1,11 @@
 import os
 import time
 from typing import List, Optional, Dict, Any
-from openai import OpenAI
 from models.core import TimedSegment
 from config import Config
+from services.provider_factory import provider_manager
+from services.providers import TranscriptionResult
+from utils.provider_errors import ProviderError
 
 
 class SpeechToTextError(Exception):
@@ -11,38 +13,36 @@ class SpeechToTextError(Exception):
     pass
 
 
-class TranscriptionResult:
-    """转录结果"""
-    
-    def __init__(self, text: str, language: Optional[str] = None, 
-                 duration: Optional[float] = None, segments: Optional[List[TimedSegment]] = None):
-        self.text = text
-        self.language = language
-        self.duration = duration
-        self.segments = segments or []
-
-
 class SpeechToTextService:
     """
     语音转文本服务
     
-    集成 OpenAI Whisper API 进行音频转录，
+    支持多提供者的音频转录服务，可以使用 OpenAI Whisper 或火山云ASR，
     支持多语言识别、时序数据提取和说话人识别。
     """
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, provider_type: Optional[str] = None):
+        """
+        初始化语音转文字服务
+        
+        Args:
+            provider_type: 指定提供者类型，如果为None则使用配置中的默认值
+        """
         self.config = Config()
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         
-        if not self.api_key:
-            raise SpeechToTextError("OpenAI API密钥未设置")
+        # 如果指定了提供者类型，临时设置配置
+        if provider_type:
+            original_provider = self.config.STT_PROVIDER
+            self.config.STT_PROVIDER = provider_type
         
-        self.client = OpenAI(api_key=self.api_key)
-        
-        # Whisper模型配置
-        self.model = "whisper-1"
-        self.supported_formats = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm']
-        self.max_file_size = 25 * 1024 * 1024  # 25MB限制
+        try:
+            self.provider = provider_manager.get_stt_provider()
+        except ProviderError as e:
+            raise SpeechToTextError(f"初始化语音转文字提供者失败: {str(e)}")
+        finally:
+            # 恢复原始配置
+            if provider_type:
+                self.config.STT_PROVIDER = original_provider
     
     def transcribe(self, audio_path: str, language: Optional[str] = None, 
                   prompt: Optional[str] = None) -> TranscriptionResult:
@@ -60,48 +60,10 @@ class SpeechToTextService:
         Raises:
             SpeechToTextError: 转录失败
         """
-        if not os.path.exists(audio_path):
-            raise SpeechToTextError(f"音频文件不存在: {audio_path}")
-        
-        # 检查文件格式
-        file_ext = os.path.splitext(audio_path)[1].lower()
-        if file_ext not in self.supported_formats:
-            raise SpeechToTextError(f"不支持的文件格式: {file_ext}")
-        
-        # 检查文件大小
-        file_size = os.path.getsize(audio_path)
-        if file_size > self.max_file_size:
-            raise SpeechToTextError(f"文件太大: {file_size} bytes (最大 {self.max_file_size} bytes)")
-        
         try:
-            # 准备API参数
-            params = {
-                "model": self.model,
-                "response_format": "json"
-            }
-            
-            if language:
-                params["language"] = language
-            
-            if prompt:
-                params["prompt"] = prompt
-            
-            # 调用OpenAI Whisper API
-            with open(audio_path, "rb") as audio_file:
-                response = self.client.audio.transcriptions.create(
-                    file=audio_file,
-                    **params
-                )
-            
-            # 解析响应
-            transcription_text = response.text
-            detected_language = getattr(response, 'language', None)
-            
-            return TranscriptionResult(
-                text=transcription_text,
-                language=detected_language
-            )
-            
+            return self.provider.transcribe(audio_path, language, prompt)
+        except ProviderError as e:
+            raise SpeechToTextError(f"转录失败: {str(e)}")
         except Exception as e:
             raise SpeechToTextError(f"转录失败: {str(e)}")
     
@@ -121,63 +83,10 @@ class SpeechToTextService:
         Raises:
             SpeechToTextError: 转录失败
         """
-        if not os.path.exists(audio_path):
-            raise SpeechToTextError(f"音频文件不存在: {audio_path}")
-        
-        file_ext = os.path.splitext(audio_path)[1].lower()
-        if file_ext not in self.supported_formats:
-            raise SpeechToTextError(f"不支持的文件格式: {file_ext}")
-        
-        file_size = os.path.getsize(audio_path)
-        if file_size > self.max_file_size:
-            raise SpeechToTextError(f"文件太大: {file_size} bytes")
-        
         try:
-            # 准备API参数
-            params = {
-                "model": self.model,
-                "response_format": "verbose_json",
-                "timestamp_granularities": ["segment"]
-            }
-            
-            if language:
-                params["language"] = language
-            
-            if prompt:
-                params["prompt"] = prompt
-            
-            # 调用API获取详细响应
-            with open(audio_path, "rb") as audio_file:
-                response = self.client.audio.transcriptions.create(
-                    file=audio_file,
-                    **params
-                )
-            
-            # 解析响应
-            transcription_text = response.text
-            detected_language = getattr(response, 'language', None)
-            duration = getattr(response, 'duration', None)
-            
-            # 解析片段
-            segments = []
-            if hasattr(response, 'segments') and response.segments:
-                for i, segment in enumerate(response.segments):
-                    timed_segment = TimedSegment(
-                        start_time=segment.start,
-                        end_time=segment.end,
-                        original_text=segment.text.strip(),
-                        confidence=getattr(segment, 'avg_logprob', 0.0),
-                        speaker_id=f"speaker_{i % 2}"  # 简单的说话人分配
-                    )
-                    segments.append(timed_segment)
-            
-            return TranscriptionResult(
-                text=transcription_text,
-                language=detected_language,
-                duration=duration,
-                segments=segments
-            )
-            
+            return self.provider.transcribe_with_timestamps(audio_path, language, prompt)
+        except ProviderError as e:
+            raise SpeechToTextError(f"时间戳转录失败: {str(e)}")
         except Exception as e:
             raise SpeechToTextError(f"时间戳转录失败: {str(e)}")
     
@@ -215,16 +124,9 @@ class SpeechToTextService:
             raise SpeechToTextError(f"音频文件不存在: {audio_path}")
         
         try:
-            # 只处理前30秒用于语言检测（节省API调用）
-            with open(audio_path, "rb") as audio_file:
-                response = self.client.audio.transcriptions.create(
-                    file=audio_file,
-                    model=self.model,
-                    response_format="json"
-                )
-            
-            return getattr(response, 'language', 'unknown')
-            
+            return self.provider.detect_language(audio_path)
+        except ProviderError as e:
+            raise SpeechToTextError(f"语言检测失败: {str(e)}")
         except Exception as e:
             raise SpeechToTextError(f"语言检测失败: {str(e)}")
     
@@ -236,12 +138,7 @@ class SpeechToTextService:
             bool: API密钥是否有效
         """
         try:
-            # 使用一个小的测试文件验证API密钥
-            # 这里我们只是检查client是否能正常初始化
-            if not self.client:
-                return False
-            return True
-            
+            return self.provider.validate_api_key()
         except Exception:
             return False
     
@@ -252,21 +149,24 @@ class SpeechToTextService:
         Returns:
             List[str]: 支持的语言代码列表
         """
-        # Whisper支持的主要语言
-        return [
-            'en',  # English
-            'zh',  # Chinese
-            'es',  # Spanish
-            'fr',  # French
-            'de',  # German
-            'ja',  # Japanese
-            'ko',  # Korean
-            'pt',  # Portuguese
-            'ru',  # Russian
-            'it',  # Italian
-            'ar',  # Arabic
-            'hi',  # Hindi
-        ]
+        try:
+            return self.provider.get_supported_languages()
+        except Exception:
+            # 如果提供者没有实现，返回默认列表
+            return [
+                'en',  # English
+                'zh',  # Chinese
+                'es',  # Spanish
+                'fr',  # French
+                'de',  # German
+                'ja',  # Japanese
+                'ko',  # Korean
+                'pt',  # Portuguese
+                'ru',  # Russian
+                'it',  # Italian
+                'ar',  # Arabic
+                'hi',  # Hindi
+            ]
     
     def split_long_audio(self, audio_path: str, max_duration: float = 600.0) -> List[str]:
         """
@@ -282,19 +182,27 @@ class SpeechToTextService:
         Raises:
             SpeechToTextError: 分割失败
         """
-        # 这是一个占位符实现
-        # 实际实现需要使用FFmpeg来分割音频
-        # 这里简单返回原文件，假设文件不超过限制
         if not os.path.exists(audio_path):
             raise SpeechToTextError(f"音频文件不存在: {audio_path}")
         
-        # 简单实现：如果文件小于限制就直接返回
-        file_size = os.path.getsize(audio_path)
-        if file_size <= self.max_file_size:
-            return [audio_path]
-        
-        # 如果文件太大，抛出错误（完整实现应该分割文件）
-        raise SpeechToTextError("音频文件太大，需要分割处理")
+        try:
+            # 委托给提供者处理（如果支持）
+            if hasattr(self.provider, 'split_long_audio'):
+                return self.provider.split_long_audio(audio_path, max_duration)
+            
+            # 默认实现：简单检查文件大小
+            file_size = os.path.getsize(audio_path)
+            max_file_size = 25 * 1024 * 1024  # 25MB默认限制
+            
+            if file_size <= max_file_size:
+                return [audio_path]
+            else:
+                raise SpeechToTextError("音频文件太大，需要分割处理")
+                
+        except ProviderError as e:
+            raise SpeechToTextError(f"分割音频失败: {str(e)}")
+        except Exception as e:
+            raise SpeechToTextError(f"分割音频失败: {str(e)}")
     
     def transcribe_large_file(self, audio_path: str, language: Optional[str] = None) -> TranscriptionResult:
         """

@@ -3,16 +3,20 @@ import tempfile
 import os
 from unittest.mock import Mock, patch, MagicMock
 from pydub import AudioSegment
-from services.text_to_speech import TextToSpeechService, TextToSpeechServiceError, SpeechSynthesisResult, VoiceConfig
+from services.text_to_speech import TextToSpeechService, TextToSpeechServiceError, VoiceConfig
+from services.providers import SpeechSynthesisResult
 from models.core import TimedSegment
 
 
 class TestTextToSpeechService:
     
     def setup_method(self):
-        # 使用模拟的API密钥初始化服务
-        with patch('services.text_to_speech.which', return_value='/usr/bin/ffmpeg'):
-            self.service = TextToSpeechService(api_key="test_api_key")
+        # 模拟提供者
+        with patch('services.text_to_speech.provider_manager') as mock_manager:
+            mock_provider = MagicMock()
+            mock_manager.get_tts_provider.return_value = mock_provider
+            self.service = TextToSpeechService()
+            self.mock_provider = mock_provider
         
         # 创建测试数据
         self.test_segments = [
@@ -45,9 +49,9 @@ class TestTextToSpeechService:
         # 创建测试音频
         self.test_audio = AudioSegment.silent(duration=2000)  # 2秒静音
     
-    def test_initialization_with_api_key(self):
-        """测试使用API密钥初始化"""
-        with patch('services.text_to_speech.which', return_value='/usr/bin/ffmpeg'):
+    def test_initialization_with_provider_type(self):
+        """测试使用指定提供者类型初始化"""
+        with patch('services.text_to_speech.provider_manager') as mock_manager:
             service = TextToSpeechService(api_key="test_key")
             assert service.api_key == "test_key"
             assert 'en' in service.voice_mapping

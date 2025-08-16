@@ -1,15 +1,19 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from services.translation_service import TranslationService, TranslationServiceError, TranslationResult
+from services.translation_service import TranslationService, TranslationServiceError
+from services.providers import TranslationResult
 from models.core import TimedSegment
 
 
 class TestTranslationService:
     
     def setup_method(self):
-        # 使用模拟的API密钥初始化服务
-        with patch.object(TranslationService, '_call_translation_api_with_retry'):
-            self.service = TranslationService(api_key="test_api_key")
+        # 模拟提供者
+        with patch('services.translation_service.provider_manager') as mock_manager:
+            mock_provider = MagicMock()
+            mock_manager.get_translation_provider.return_value = mock_provider
+            self.service = TranslationService()
+            self.mock_provider = mock_provider
         
         # 创建测试数据
         self.test_segments = [

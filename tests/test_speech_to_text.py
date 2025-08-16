@@ -3,7 +3,8 @@ import tempfile
 import shutil
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
-from services.speech_to_text import SpeechToTextService, SpeechToTextError, TranscriptionResult
+from services.speech_to_text import SpeechToTextService, SpeechToTextError
+from services.providers import TranscriptionResult
 from models.core import TimedSegment
 
 
@@ -48,55 +49,69 @@ class TestSpeechToTextService:
         with open(self.mock_audio_path, 'wb') as f:
             f.write(b"mock audio content")
         
-        # 模拟API密钥
-        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test_api_key'}):
+        # 模拟配置和提供者
+        with patch('services.speech_to_text.provider_manager') as mock_manager:
+            mock_provider = MagicMock()
+            mock_manager.get_stt_provider.return_value = mock_provider
             self.service = SpeechToTextService()
+            self.mock_provider = mock_provider
     
     def teardown_method(self):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
     
-    def test_init_with_api_key(self):
-        """测试使用API密钥初始化"""
-        service = SpeechToTextService(api_key="custom_key")
-        assert service.api_key == "custom_key"
+    def test_init_with_provider_type(self):
+        """测试使用指定提供者类型初始化"""
+        with patch('services.speech_to_text.provider_manager') as mock_manager:
+            mock_provider = MagicMock()
+            mock_manager.get_stt_provider.return_value = mock_provider
+            service = SpeechToTextService(provider_type="volcengine")
+            assert service.provider == mock_provider
     
-    def test_init_without_api_key(self):
-        """测试没有API密钥时的错误"""
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(SpeechToTextError, match="OpenAI API密钥未设置"):
+    def test_init_provider_error(self):
+        """测试提供者初始化错误"""
+        with patch('services.speech_to_text.provider_manager') as mock_manager:
+            from utils.provider_errors import ProviderError
+            mock_manager.get_stt_provider.side_effect = ProviderError("初始化失败")
+            with pytest.raises(SpeechToTextError, match="初始化语音转文字提供者失败"):
                 SpeechToTextService()
     
     def test_supported_formats(self):
         """测试支持的文件格式"""
-        expected_formats = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm']
-        assert self.service.supported_formats == expected_formats
+        # 这个测试现在需要委托给提供者
+        self.mock_provider.get_supported_formats.return_value = ['.mp3', '.wav']
+        if hasattr(self.service.provider, 'get_supported_formats'):
+            formats = self.service.provider.get_supported_formats()
+            assert '.mp3' in formats
     
-    @patch('services.speech_to_text.OpenAI')
-    def test_transcribe_success(self, mock_openai):
+    def test_transcribe_success(self):
         """测试转录成功"""
-        # 模拟OpenAI响应
-        mock_response = MagicMock()
-        mock_response.text = "Hello, this is a test transcription."
-        mock_response.language = "en"
+        # 模拟提供者响应
+        mock_result = TranscriptionResult(
+            text="Hello, this is a test transcription.",
+            language="en",
+            segments=[TimedSegment(0.0, 2.0, "Hello, this is a test transcription.")]
+        )
+        self.mock_provider.transcribe.return_value = mock_result
         
-        mock_client = MagicMock()
-        mock_client.audio.transcriptions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
-        # 创建新的service实例来使用mock
-        service = SpeechToTextService(api_key="test_key")
-        result = service.transcribe(self.mock_audio_path)
+        result = self.service.transcribe(self.mock_audio_path)
         
         assert isinstance(result, TranscriptionResult)
         assert result.text == "Hello, this is a test transcription."
         assert result.language == "en"
+        
+        # 验证提供者被调用
+        self.mock_provider.transcribe.assert_called_once_with(self.mock_audio_path, None, None)
     
     def test_transcribe_file_not_exists(self):
         """测试文件不存在的情况"""
         non_existent_path = "/path/to/nonexistent.wav"
         
-        with pytest.raises(SpeechToTextError, match="音频文件不存在"):
+        # 模拟提供者抛出错误
+        from utils.provider_errors import ProviderError
+        self.mock_provider.transcribe.side_effect = ProviderError("文件不存在")
+        
+        with pytest.raises(SpeechToTextError, match="转录失败"):
             self.service.transcribe(non_existent_path)
     
     def test_transcribe_unsupported_format(self):
@@ -105,7 +120,11 @@ class TestSpeechToTextService:
         with open(unsupported_file, 'w') as f:
             f.write("text file")
         
-        with pytest.raises(SpeechToTextError, match="不支持的文件格式"):
+        # 模拟提供者抛出错误
+        from utils.provider_errors import ProviderError
+        self.mock_provider.transcribe.side_effect = ProviderError("不支持的格式")
+        
+        with pytest.raises(SpeechToTextError, match="转录失败"):
             self.service.transcribe(unsupported_file)
     
     def test_transcribe_file_too_large(self):

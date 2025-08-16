@@ -13,8 +13,26 @@ class Config:
     # 支持的语言
     SUPPORTED_LANGUAGES: List[str] = ["en", "zh", "es", "fr", "de"]
     
-    # API 配置
+    # 服务提供者选择
+    STT_PROVIDER: str = os.getenv("STT_PROVIDER", "openai")  # openai, volcengine
+    TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "openai")  # openai, volcengine
+    TRANSLATION_PROVIDER: str = os.getenv("TRANSLATION_PROVIDER", "openai")  # openai, doubao
+    
+    # OpenAI 配置
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    
+    # 火山云配置
+    VOLCENGINE_ASR_APP_ID: str = os.getenv("VOLCENGINE_ASR_APP_ID", "")
+    VOLCENGINE_ASR_ACCESS_TOKEN: str = os.getenv("VOLCENGINE_ASR_ACCESS_TOKEN", "")
+    VOLCENGINE_TTS_APP_ID: str = os.getenv("VOLCENGINE_TTS_APP_ID", "")
+    VOLCENGINE_TTS_ACCESS_TOKEN: str = os.getenv("VOLCENGINE_TTS_ACCESS_TOKEN", "")
+    
+    # 豆包大模型配置
+    DOUBAO_API_KEY: str = os.getenv("DOUBAO_API_KEY", "")
+    DOUBAO_BASE_URL: str = os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+    DOUBAO_MODEL: str = os.getenv("DOUBAO_MODEL", "")
+    
+    # 保留的兼容配置
     GOOGLE_TRANSLATE_API_KEY: str = os.getenv("GOOGLE_TRANSLATE_API_KEY", "")
     
     # 作业状态管理配置
