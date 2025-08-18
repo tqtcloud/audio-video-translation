@@ -12,6 +12,10 @@ import json
 from typing import Optional, List, Dict, Any
 from dataclasses import asdict
 
+# 加载环境变量（必须在导入其他模块前）
+from dotenv import load_dotenv
+load_dotenv()
+
 from services.integrated_pipeline import IntegratedPipeline, PipelineConfig, PipelineResult
 from services.output_generator import OutputConfig
 from models.core import ProcessingStage
@@ -116,7 +120,8 @@ class AudioVideoTranslationApp:
             print("✗ 管道未初始化，请先运行 init 命令")
             return None
         
-        if not os.path.exists(file_path):
+        # 检查文件路径：支持HTTP URL和本地文件
+        if not file_path.startswith('http') and not os.path.exists(file_path):
             print(f"✗ 文件不存在: {file_path}")
             return None
         

@@ -44,6 +44,11 @@ class IntegrationValidator:
     
     def _setup_volcengine_config(self):
         """设置火山云配置"""
+        # 提供者选择配置
+        os.environ['STT_PROVIDER'] = 'volcengine'
+        os.environ['TTS_PROVIDER'] = 'volcengine'
+        os.environ['TRANSLATION_PROVIDER'] = 'doubao'
+        
         # 语音识别和合成配置
         os.environ['VOLCENGINE_ASR_APP_ID'] = '5165236022'
         os.environ['VOLCENGINE_ASR_ACCESS_TOKEN'] = '0xeMuBNttsJrkXtZS6GgIPfR50JlJOyk'

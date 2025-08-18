@@ -110,3 +110,5 @@ README.md
 .kiro/
 test_data/
 uploads/
+output/
+CLAUDE.md

@@ -120,8 +120,8 @@ class VolcengineTTSAdapter:
         voice_mapping = {
             'zh': {
                 'male': 'zh_male_jingqiangxiaoming_moon_bigtts',
-                'female': 'zh_female_shuangkuaixiaofang_moon_bigtts',
-                'default': 'zh_female_shuangkuaixiaofang_moon_bigtts'
+                'female': 'zh_female_cancan_mars_bigtts',
+                'default': 'zh_female_cancan_mars_bigtts'
             },
             'en': {
                 'male': 'en_male_adam_basic',

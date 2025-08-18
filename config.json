@@ -1,0 +1,11 @@
+{
+  "target_language": "zh-CN",
+  "voice_model": "alloy",
+  "preserve_background_audio": true,
+  "output_directory": "./output",
+  "file_naming_pattern": "{name}_translated_{timestamp}",
+  "audio_format": "mp3",
+  "video_format": "mp4",
+  "enable_fault_tolerance": true,
+  "max_retries": 3
+}

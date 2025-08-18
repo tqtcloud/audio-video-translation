@@ -41,6 +41,73 @@ class DoubaoTranslation(TranslationProvider):
         self.temperature = 0.3
         self.request_timeout = 60
     
+    def translate(self, text: str, source_lang: str, target_lang: str):
+        """翻译文本，返回简单的翻译结果"""
+        if not text:
+            raise ProviderError("输入文本为空")
+        
+        if target_lang not in self.language_map:
+            raise ProviderError(f"不支持的目标语言: {target_lang}")
+        
+        if source_lang not in self.language_map:
+            raise ProviderError(f"不支持的源语言: {source_lang}")
+        
+        # 如果源语言和目标语言相同，直接返回
+        if source_lang == target_lang:
+            # 返回简单的结果对象
+            class SimpleResult:
+                def __init__(self, text):
+                    self.text = text
+            return SimpleResult(text)
+        
+        try:
+            # 构建翻译请求
+            prompt = f"""Please translate the following text from {self.language_map[source_lang]} to {self.language_map[target_lang]}. 
+Only provide the translation without any explanation or additional text.
+
+Text: {text}
+
+Translation:"""
+            
+            # 发送请求到豆包大模型
+            request_data = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": f"You are a professional translator. Translate accurately from {self.language_map[source_lang]} to {self.language_map[target_lang]}."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                "temperature": self.temperature,
+                "max_tokens": min(len(text) * 3, self.max_tokens_per_request)
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=self.headers,
+                json=request_data,
+                timeout=self.request_timeout
+            )
+            
+            if response.status_code != 200:
+                raise ProviderError(f"翻译请求失败: {response.status_code} - {response.text}")
+            
+            result = response.json()
+            translated_text = result["choices"][0]["message"]["content"].strip()
+            
+            # 返回简单的结果对象
+            class SimpleResult:
+                def __init__(self, text):
+                    self.text = text
+            return SimpleResult(translated_text)
+            
+        except Exception as e:
+            raise ProviderError(f"翻译失败: {str(e)}")
+    
     def translate_segments(self, segments: List[TimedSegment], 
                           target_language: str,
                           source_language: Optional[str] = None) -> TranslationResult:

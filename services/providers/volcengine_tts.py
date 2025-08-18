@@ -14,12 +14,13 @@ from utils.provider_errors import ProviderError, map_volcengine_error
 class VolcengineTextToSpeech(TextToSpeechProvider):
     """火山云语音合成提供者"""
     
-    def __init__(self, app_id: str, access_token: str):
+    def __init__(self, app_id: str, access_token: str, cluster: str = "volcano_tts"):
         if not app_id or not access_token:
             raise ProviderError("火山云TTS配置参数不完整")
         
         self.app_id = app_id
         self.access_token = access_token
+        self.cluster = cluster
         self.base_url = "https://openspeech.bytedance.com/api/v1/tts"
         
         # 请求配置
@@ -89,6 +90,40 @@ class VolcengineTextToSpeech(TextToSpeechProvider):
                 timing_adjustments=timing_adjustments
             )
             
+        except Exception as e:
+            if isinstance(e, ProviderError):
+                raise e
+            raise ProviderError(f"火山云TTS合成失败: {str(e)}")
+    
+    def synthesize(self, text: str, language: str, output_path: str,
+                  voice_config: Optional[Dict[str, Any]] = None):
+        """简化的合成接口，直接保存到指定路径"""
+        if not text.strip():
+            raise ProviderError("输入文本为空")
+        
+        try:
+            # 获取语音配置
+            voice_mapping = VolcengineTTSAdapter.adapt_voice_mapping(language)
+            if not voice_mapping:
+                raise ProviderError(f"不支持的语言: {language}")
+            
+            if not voice_config:
+                voice_config = {'voice_id': voice_mapping['default']}
+            
+            # 调用TTS API
+            audio_data = self._call_tts_api(text, language, voice_config)
+            
+            # 保存到指定文件
+            with open(output_path, 'wb') as f:
+                f.write(audio_data)
+            
+            # 返回简单的结果对象
+            class SimpleResult:
+                def __init__(self, path):
+                    self.audio_path = path
+            
+            return SimpleResult(output_path)
+                
         except Exception as e:
             if isinstance(e, ProviderError):
                 raise e
@@ -176,12 +211,13 @@ class VolcengineTextToSpeech(TextToSpeechProvider):
         request_data = VolcengineTTSAdapter.adapt_request([], language, voice_config)
         request_data["app"]["appid"] = self.app_id
         request_data["app"]["token"] = self.access_token
+        request_data["app"]["cluster"] = self.cluster
         request_data["request"]["reqid"] = str(uuid.uuid4())
         request_data["request"]["text"] = text
         
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.access_token}"
+            "Authorization": f"Bearer;{self.access_token}"
         }
         
         last_error = None

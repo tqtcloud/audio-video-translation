@@ -7,9 +7,11 @@ from services.providers.openai_stt import OpenAISpeechToText
 from services.providers.openai_tts import OpenAITextToSpeech
 from services.providers.openai_translation import OpenAITranslation
 
-# 火山云提供者
-from services.providers.volcengine_stt import VolcengineSpeechToText
-from services.providers.volcengine_tts import VolcengineTextToSpeech
+# 火山云提供者（注释掉旧的导入，避免websocket-client依赖）
+# from services.providers.volcengine_stt import VolcengineSpeechToText
+# from services.providers.volcengine_stt_binary import VolcengineSpeechToTextBinary
+# from services.providers.volcengine_stt_official import VolcengineSpeechToTextOfficial
+# from services.providers.volcengine_tts import VolcengineTextToSpeech
 from services.providers.doubao_translation import DoubaoTranslation
 
 # 抽象基类
@@ -39,22 +41,30 @@ class ProviderFactory:
             if not app_id or not access_token:
                 raise ProviderError("火山云ASR配置不完整，请检查 VOLCENGINE_ASR_APP_ID 和 VOLCENGINE_ASR_ACCESS_TOKEN")
             
-            return VolcengineSpeechToText(
+            # 使用异步HTTP API实现（基于官方文档）
+            from services.providers.volcengine_asr_async import VolcengineAsyncASR
+            return VolcengineAsyncASR(
                 app_id=app_id,
-                access_token=access_token,
-                cluster="volcengine_streaming_common"
+                access_token=access_token
             )
             
         elif provider == "openai":
             api_key = Config.OPENAI_API_KEY
             
             if not api_key:
-                raise ProviderError("OpenAI API密钥未设置，请检查 OPENAI_API_KEY")
+                # 使用本地Whisper模型
+                from services.providers.local_whisper_stt import LocalWhisperSpeechToText
+                return LocalWhisperSpeechToText(model_size="base")
             
             return OpenAISpeechToText(api_key=api_key)
             
+        elif provider == "whisper" or provider == "local":
+            # 本地Whisper模型
+            from services.providers.local_whisper_stt import LocalWhisperSpeechToText
+            return LocalWhisperSpeechToText(model_size="base")
+            
         else:
-            raise ProviderError(f"不支持的STT提供者: {provider}，支持的提供者：openai, volcengine")
+            raise ProviderError(f"不支持的STT提供者: {provider}，支持的提供者：openai, volcengine, whisper")
     
     @staticmethod
     def create_tts_provider() -> TextToSpeechProvider:
@@ -76,7 +86,9 @@ class ProviderFactory:
             if not app_id or not access_token:
                 raise ProviderError("火山云TTS配置不完整，请检查 VOLCENGINE_TTS_APP_ID 和 VOLCENGINE_TTS_ACCESS_TOKEN")
             
-            return VolcengineTextToSpeech(
+            # 使用修复版二进制WebSocket实现
+            from services.providers.volcengine_tts_fixed import VolcengineTextToSpeech as VolcengineTTSFixed
+            return VolcengineTTSFixed(
                 app_id=app_id,
                 access_token=access_token
             )
