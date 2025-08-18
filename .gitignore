@@ -105,6 +105,8 @@ Thumbs.db
 .env.test.local
 .env.production.local
 config.local.*
+.env.*
+job_states.json
 README.md
 .claude/
 .kiro/
