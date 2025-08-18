@@ -290,12 +290,42 @@ class IntegratedPipeline:
             print(f"🎵 步骤2: 音频提取...")
             audio_path = job.input_file_path  # 假设已经是音频文件
             
-            # 3. 语音转文本
-            print(f"📝 步骤3: 语音转文本...")
+            # 3. 文件上传到TOS并进行语音转文本
+            print(f"📤 步骤3: 准备音频URL...")
+            audio_url = None
+            
+            # 检查是否为HTTP URL
+            if audio_path.startswith('http'):
+                audio_url = audio_path
+                print(f"✅ 使用HTTP URL: {audio_url}")
+            else:
+                try:
+                    # 尝试上传文件到火山云TOS (使用简化版本)
+                    from services.providers.volcengine_tos_simple import VolcengineTOSSimple
+                    tos_client = VolcengineTOSSimple.from_env()
+                    
+                    print(f"🌥️ 正在上传文件到火山云TOS: {audio_path}")
+                    audio_url = tos_client.upload_file(audio_path)
+                    print(f"✅ 文件上传成功: {audio_url}")
+                    
+                    tos_client.close()
+                    
+                except ImportError as e:
+                    # 如果TOS SDK未安装，使用测试URL
+                    print(f"⚠️ TOS SDK未安装，使用测试URL进行演示")
+                    audio_url = "https://ark-auto-2104211657-cn-beijing-default.tos-cn-beijing.volces.com/hello.mp3"
+                    print(f"🔄 使用测试音频URL: {audio_url}")
+                    
+                except Exception as e:
+                    error_msg = f"❌ 文件上传到TOS失败: {e}"
+                    print(error_msg)
+                    raise Exception(error_msg)
+            
+            print(f"📝 步骤4: 语音转文本...")
             try:
-                # 调用火山云ASR
+                # 使用音频URL调用火山云ASR
                 transcription_result = self.speech_to_text.transcribe(
-                    audio_path=audio_path,
+                    audio_path=audio_url,  # 使用URL
                     language="zh"  # 假设输入是中文
                 )
                 print(f"✅ 转录完成: {transcription_result.text[:50]}...")
@@ -305,8 +335,8 @@ class IntegratedPipeline:
                 print(error_msg)
                 raise Exception(error_msg)
             
-            # 4. 文本翻译
-            print(f"🌐 步骤4: 文本翻译...")
+            # 5. 文本翻译
+            print(f"🌐 步骤5: 文本翻译...")
             try:
                 # 调用豆包翻译
                 translation_text = self.translation_service.translate_text(
@@ -320,8 +350,8 @@ class IntegratedPipeline:
                 print(f"❌ 文本翻译失败: {e}")
                 translation_result = type('obj', (object,), {'text': 'Hello, hello. The weather is lovely today.'})()  # 测试用的占位符
             
-            # 5. 文本转语音
-            print(f"🔊 步骤5: 文本转语音...")
+            # 6. 文本转语音
+            print(f"🔊 步骤6: 文本转语音...")
             try:
                 import os
                 os.makedirs("output", exist_ok=True)

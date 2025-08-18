@@ -22,8 +22,8 @@ requests>=2.28.0
 # WebSocket客户端 (用于火山云服务)
 websockets>=15.0.0
 
-# 火山云SDK (可选，如果有官方SDK)
-# volcengine-python-sdk>=1.0.0
+# 火山云SDK
+tos>=2.7.0  # 火山云对象存储SDK
 
 # 加密和认证
 cryptography>=41.0.0
