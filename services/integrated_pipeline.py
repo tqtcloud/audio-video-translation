@@ -355,7 +355,9 @@ class IntegratedPipeline:
             try:
                 import os
                 os.makedirs("output", exist_ok=True)
-                output_audio_path = f"output/{job.id}_translated.wav"
+                # 直接生成最终文件，避免临时文件
+                final_output_path = f"output/{os.path.basename(job.input_file_path).split('.')[0]}_translated_{job.target_language}.wav"
+                output_audio_path = final_output_path
                 
                 # 方法1: 尝试直接使用我们成功的TTS测试实现
                 print("🔄 使用成功验证的TTS方法...")
@@ -446,7 +448,7 @@ class IntegratedPipeline:
                 import shutil
                 source_file = "output/doubao_volcengine_success.wav"
                 if os.path.exists(source_file):
-                    output_audio_path = f"output/{job.id}_translated.wav"
+                    # 直接复制到最终位置，不生成临时文件
                     shutil.copy2(source_file, output_audio_path)
                     print(f"✅ 使用备用音频文件: {output_audio_path}")
                 else:
@@ -454,14 +456,20 @@ class IntegratedPipeline:
             
             # 6. 最终输出
             print(f"📦 步骤6: 生成最终输出...")
-            import os
-            final_output_path = f"output/{os.path.basename(job.input_file_path).split('.')[0]}_translated_{job.target_language}.wav"
-            
-            # 复制文件到最终位置
+            # 文件已经直接生成到最终位置，无需复制
             if os.path.exists(output_audio_path):
-                import shutil
-                shutil.copy2(output_audio_path, final_output_path)
                 print(f"✅ 最终输出文件: {final_output_path}")
+            else:
+                print(f"❌ 输出文件不存在: {final_output_path}")
+            
+            # 清理可能的临时文件
+            temp_pattern = f"output/{job.id}_translated.wav"
+            if temp_pattern != final_output_path and os.path.exists(temp_pattern):
+                try:
+                    os.remove(temp_pattern)
+                    print(f"🗑️ 已清理临时文件: {temp_pattern}")
+                except Exception as cleanup_error:
+                    print(f"⚠️ 清理临时文件失败: {cleanup_error}")
             
             processing_time = time.time() - start_time
             
