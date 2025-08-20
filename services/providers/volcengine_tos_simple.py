@@ -106,6 +106,80 @@ class VolcengineTOSSimple:
             print(f"❌ {error_msg}")
             raise Exception(error_msg)
     
+    def delete_file(self, object_key: str) -> bool:
+        """
+        从TOS删除文件
+        
+        Args:
+            object_key: 要删除的对象键名
+            
+        Returns:
+            bool: 删除是否成功
+        """
+        print(f"🗑️ 开始删除TOS文件:")
+        print(f"   对象键名: {object_key}")
+        print(f"   存储桶: {self.bucket_name}")
+        
+        try:
+            # 删除文件
+            result = self.client.delete_object(
+                bucket=self.bucket_name,
+                key=object_key
+            )
+            
+            # 检查删除是否成功
+            if result.status_code == 204:
+                print(f"✅ 文件删除成功!")
+                print(f"📊 请求ID: {result.request_id}")
+                return True
+            else:
+                print(f"⚠️ 删除响应异常，状态码: {result.status_code}")
+                return False
+                
+        except TosClientError as e:
+            error_msg = f"TOS客户端错误: {e.message}"
+            if hasattr(e, 'cause') and e.cause:
+                error_msg += f", 原因: {e.cause}"
+            print(f"❌ {error_msg}")
+            return False
+        except TosServerError as e:
+            error_msg = f"TOS服务器错误: {e.code} - {e.message}"
+            print(f"❌ {error_msg}")
+            print(f"🔍 请求ID: {e.request_id}")
+            if hasattr(e, 'request_url'):
+                print(f"📡 请求URL: {e.request_url}")
+            print(f"🔧 HTTP状态码: {e.status_code}")
+            if hasattr(e, 'header'):
+                print(f"📋 响应头: {e.header}")
+            return False
+        except Exception as e:
+            error_msg = f"未知错误: {e}"
+            print(f"❌ {error_msg}")
+            return False
+    
+    def delete_file_by_url(self, file_url: str) -> bool:
+        """
+        根据TOS文件URL删除文件
+        
+        Args:
+            file_url: TOS文件的完整URL
+            
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            # 从URL中提取object_key
+            # URL格式: https://{bucket}.{endpoint}/{object_key}
+            if f"https://{self.bucket_name}.{self.endpoint}/" in file_url:
+                object_key = file_url.split(f"https://{self.bucket_name}.{self.endpoint}/")[1]
+                return self.delete_file(object_key)
+            else:
+                print(f"❌ 无法从URL中提取对象键名: {file_url}")
+                return False
+        except Exception as e:
+            print(f"❌ 解析URL失败: {e}")
+            return False
+
     def close(self):
         """关闭TOS客户端"""
         try:

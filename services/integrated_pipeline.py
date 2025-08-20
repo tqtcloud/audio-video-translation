@@ -279,6 +279,11 @@ class IntegratedPipeline:
         start_time = time.time()
         stages_completed = []
         
+        # TOS资源跟踪
+        tos_client = None
+        uploaded_file_url = None
+        need_cleanup_tos = False
+        
         try:
             print(f"🚀 开始处理作业 {job.id}: {job.input_file_path}")
             
@@ -306,9 +311,9 @@ class IntegratedPipeline:
                     
                     print(f"🌥️ 正在上传文件到火山云TOS: {audio_path}")
                     audio_url = tos_client.upload_file(audio_path)
+                    uploaded_file_url = audio_url  # 记录上传的文件URL，用于后续清理
+                    need_cleanup_tos = True  # 标记需要清理
                     print(f"✅ 文件上传成功: {audio_url}")
-                    
-                    tos_client.close()
                     
                 except ImportError as e:
                     # 如果TOS SDK未安装，使用测试URL
@@ -498,6 +503,52 @@ class IntegratedPipeline:
                 processing_time=processing_time,
                 stages_completed=stages_completed
             )
+            
+        finally:
+            # 资源清理：删除上传到TOS的临时文件
+            self._cleanup_tos_resources(tos_client, uploaded_file_url, need_cleanup_tos)
+
+    def _cleanup_tos_resources(self, tos_client, uploaded_file_url: Optional[str], need_cleanup: bool):
+        """
+        清理TOS资源
+        
+        Args:
+            tos_client: TOS客户端实例
+            uploaded_file_url: 上传的文件URL
+            need_cleanup: 是否需要清理
+        """
+        if not need_cleanup or not uploaded_file_url:
+            print("🟢 无需清理TOS资源")
+            return
+            
+        print("🧹 开始清理TOS资源...")
+        
+        try:
+            if tos_client:
+                # 使用现有的TOS客户端删除文件
+                success = tos_client.delete_file_by_url(uploaded_file_url)
+                if success:
+                    print(f"✅ TOS文件清理成功: {uploaded_file_url}")
+                else:
+                    print(f"⚠️ TOS文件清理失败，但不影响主流程: {uploaded_file_url}")
+            else:
+                print("⚠️ TOS客户端不可用，无法清理文件")
+                
+        except Exception as e:
+            # 清理失败不应该影响主流程，只记录错误
+            print(f"⚠️ TOS资源清理出现异常，但不影响主流程: {e}")
+            import traceback
+            print("🔍 清理异常详情:")
+            traceback.print_exc()
+            
+        finally:
+            # 确保关闭TOS客户端
+            if tos_client:
+                try:
+                    tos_client.close()
+                    print("🔐 TOS客户端已安全关闭")
+                except Exception as e:
+                    print(f"⚠️ 关闭TOS客户端时出现异常: {e}")
 
     def get_job_status(self, job_id: str) -> Optional[Job]:
         """获取作业状态"""
@@ -809,6 +860,81 @@ class IntegratedPipeline:
             "error_statistics": self.error_handler.get_error_statistics()
         }
     
+    def cleanup_orphaned_tos_files(self, prefix: str = "audio/", max_age_hours: int = 24) -> Dict[str, int]:
+        """
+        清理可能遗留的TOS文件
+        
+        Args:
+            prefix: 要清理的文件前缀，默认为"audio/"
+            max_age_hours: 文件最大保留时间（小时），超过此时间的文件将被清理
+            
+        Returns:
+            Dict[str, int]: 清理结果统计 {"found": 找到的文件数, "deleted": 成功删除的文件数, "failed": 删除失败的文件数}
+        """
+        try:
+            from services.providers.volcengine_tos_simple import VolcengineTOSSimple
+            import tos
+            from datetime import datetime, timedelta
+            
+            print(f"🧹 开始批量清理TOS遗留文件...")
+            print(f"📂 清理前缀: {prefix}")
+            print(f"⏰ 最大年龄: {max_age_hours}小时")
+            
+            # 创建TOS客户端
+            tos_client = VolcengineTOSSimple.from_env()
+            cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+            
+            stats = {"found": 0, "deleted": 0, "failed": 0}
+            
+            try:
+                # 列出指定前缀的所有对象
+                list_result = tos_client.client.list_objects(
+                    bucket=tos_client.bucket_name,
+                    prefix=prefix,
+                    max_keys=1000  # 限制一次列出的最大数量
+                )
+                
+                if hasattr(list_result, 'contents') and list_result.contents:
+                    for obj in list_result.contents:
+                        stats["found"] += 1
+                        object_key = obj.key
+                        last_modified = obj.last_modified
+                        
+                        # 检查文件是否过期
+                        if last_modified < cutoff_time:
+                            print(f"🗑️ 发现过期文件: {object_key} (修改时间: {last_modified})")
+                            
+                            # 尝试删除过期文件
+                            if tos_client.delete_file(object_key):
+                                stats["deleted"] += 1
+                                print(f"✅ 删除成功: {object_key}")
+                            else:
+                                stats["failed"] += 1
+                                print(f"❌ 删除失败: {object_key}")
+                        else:
+                            print(f"⏳ 文件还未过期，跳过: {object_key} (修改时间: {last_modified})")
+                else:
+                    print("📝 未找到匹配的文件")
+                    
+            finally:
+                tos_client.close()
+                
+            print(f"🎯 批量清理完成:")
+            print(f"   找到文件: {stats['found']} 个")
+            print(f"   成功删除: {stats['deleted']} 个")
+            print(f"   删除失败: {stats['failed']} 个")
+            
+            return stats
+            
+        except ImportError:
+            print("⚠️ TOS SDK未安装，无法执行批量清理")
+            return {"found": 0, "deleted": 0, "failed": 0}
+        except Exception as e:
+            print(f"❌ 批量清理TOS文件时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"found": 0, "deleted": 0, "failed": 0}
+
     def shutdown(self):
         """关闭管道"""
         # 等待所有活跃作业完成或超时
@@ -817,6 +943,15 @@ class IntegratedPipeline:
         
         for thread in active_threads:
             thread.join(timeout=30)  # 最多等待30秒
+        
+        # 在关闭前清理可能的遗留TOS文件
+        try:
+            print("🧹 关闭前清理遗留TOS文件...")
+            cleanup_stats = self.cleanup_orphaned_tos_files(max_age_hours=1)  # 清理1小时以上的文件
+            if cleanup_stats["deleted"] > 0:
+                print(f"✅ 清理了 {cleanup_stats['deleted']} 个遗留TOS文件")
+        except Exception as e:
+            print(f"⚠️ 关闭时清理TOS文件失败: {e}")
         
         # 关闭容错管理器
         self.fault_tolerance_manager.shutdown()
