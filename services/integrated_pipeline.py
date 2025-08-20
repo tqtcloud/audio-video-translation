@@ -397,7 +397,7 @@ class IntegratedPipeline:
                             "uid": str(uuid.uuid4()),
                         },
                         "audio": {
-                            "voice_type": "zh_female_cancan_mars_bigtts",
+                            "voice_type": "en_male_sylus_emo_v2_mars_bigtts",
                             "encoding": "wav",
                         },
                         "request": {
@@ -874,7 +874,7 @@ class IntegratedPipeline:
         try:
             from services.providers.volcengine_tos_simple import VolcengineTOSSimple
             import tos
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
             
             print(f"🧹 开始批量清理TOS遗留文件...")
             print(f"📂 清理前缀: {prefix}")
@@ -882,7 +882,20 @@ class IntegratedPipeline:
             
             # 创建TOS客户端
             tos_client = VolcengineTOSSimple.from_env()
-            cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+            # 使用UTC时间创建cutoff_time以匹配TOS对象时间戳格式
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+            
+            def safe_datetime_compare(dt1, dt2):
+                """安全比较两个datetime对象，处理timezone差异"""
+                try:
+                    return dt1 < dt2
+                except TypeError:
+                    # 如果时区不兼容，转换为UTC进行比较
+                    if dt1.tzinfo is None and dt2.tzinfo is not None:
+                        dt1 = dt1.replace(tzinfo=timezone.utc)
+                    elif dt1.tzinfo is not None and dt2.tzinfo is None:
+                        dt2 = dt2.replace(tzinfo=timezone.utc)
+                    return dt1 < dt2
             
             stats = {"found": 0, "deleted": 0, "failed": 0}
             
@@ -900,8 +913,8 @@ class IntegratedPipeline:
                         object_key = obj.key
                         last_modified = obj.last_modified
                         
-                        # 检查文件是否过期
-                        if last_modified < cutoff_time:
+                        # 检查文件是否过期 - 使用安全比较避免timezone错误
+                        if safe_datetime_compare(last_modified, cutoff_time):
                             print(f"🗑️ 发现过期文件: {object_key} (修改时间: {last_modified})")
                             
                             # 尝试删除过期文件
